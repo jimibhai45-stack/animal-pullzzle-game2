@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wildlife Match Pro</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:15px;background:radial-gradient(circle at top,#397f9c,#123b5a 55%,#08182e);font-family:Arial,sans-serif;color:white;text-align:center}
+h1{font-size:clamp(27px,7vw,40px);margin:12px 0;color:#fff;text-shadow:0 4px #082b46}
+h1 span{color:#ffdb67}
+.sub{letter-spacing:3px;font-size:11px;margin-bottom:18px}
+.app{max-width:480px;margin:auto}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:12px}
+.stat{background:#ffffff20;border:1px solid #ffffff40;border-radius:13px;padding:10px 3px}
+.stat small{display:block;font-weight:bold;font-size:10px}
+.stat b{display:block;color:#ffdf73;font-size:23px;margin-top:5px}
+.progress{height:7px;background:#06172b;border-radius:9px;margin-bottom:12px;overflow:hidden}
+#bar{height:100%;width:0;background:linear-gradient(90deg,#68ffd0,#ffdc64)}
+.frame{padding:8px;background:linear-gradient(140deg,#ffffff70,#ffffff12);border-radius:20px;box-shadow:0 15px 35px #0006;position:relative}
+#board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:4px}
+.tile{aspect-ratio:1;border:1px solid #ffffff25;border-radius:10px;background:#09243b;display:grid;place-items:center;padding:1px;cursor:pointer;min-width:0;position:relative}
+.tile.selected{outline:3px solid white;outline-offset:-3px;transform:scale(.92)}
+.animal{width:100%;height:100%;filter:drop-shadow(0 2px 2px #0005)}
+.tile.special{box-shadow:inset 0 0 0 3px #ffdf65,0 0 8px #ffe16b}
+.buttons{display:flex;gap:10px;margin-top:13px}
+button.action{flex:1;padding:13px 5px;border:0;border-radius:13px;font-weight:900;background:linear-gradient(#fff1a5,#ffc744);color:#20354b;box-shadow:0 4px #a76a1d;cursor:pointer}
+button.alt{background:linear-gradient(#ffffff40,#ffffff18);color:white;border:1px solid #ffffff40;box-shadow:0 4px #07172b}
+#message{font-weight:bold;min-height:23px;margin:12px 0 0}
+#start{position:absolute;inset:8px;border-radius:14px;background:#0b2946f5;display:flex;align-items:center;justify-content:center;padding:20px;z-index:2}
+#start.hidden{display:none}
+#start h2{font-size:29px;color:#ffdf73;margin:0 0 12px}
+#start p{line-height:1.5;font-size:14px}
+#start button{width:100%;padding:14px;border:0;border-radius:12px;background:#ffda68;font-weight:900;font-size:16px}
+footer{font-size:10px;opacity:.65;margin-top:18px}
+@media(max-width:360px){body{padding:8px}.frame{padding:5px}#board{gap:3px}.tile{border-radius:7px}}
+</style>
+</head>
+<body>
+<div class="app">
+<h1>WILDLIFE <span>MATCH</span></h1>
+<div class="sub">MATCH • BLAST • LEVEL UP</div>
+
+<div class="stats">
+ <div class="stat"><small>SCORE</small><b id="score">0</b></div>
+ <div class="stat"><small>LEVEL</small><b id="level">1/20</b></div>
+ <div class="stat"><small>MOVES</small><b id="moves">25</b></div>
+</div>
+<div class="progress"><div id="bar"></div></div>
+
+<div class="frame">
+ <div id="board"></div>
+ <div id="start">
+  <div>
+   <h2 id="startTitle">Wildlife Match!</h2>
+   <p id="startText">Match 3 or more of the same animal. Reach your target to unlock all 20 levels!</p>
+   <button id="play">START ADVENTURE</button>
+  </div>
+ </div>
+</div>
+
+<div class="buttons">
+ <button class="action" id="restart">↻ RESTART</button>
+ <button class="action alt" id="sound">♫ SOUND OFF</button>
+</div>
+<div id="message">Tap an animal, then tap a neighbor to swap.</div>
+<footer>WILDLIFE MATCH PRO • 20 LEVELS</footer>
+</div>
+
+<script>
+"use strict";
+const SIZE=8, TOTAL=20;
+const names=["FOX","CAT","FROG","PANDA","LION","PIG"];
+const colors=[
+ ["#ffb04d","#ef762c","#8f3c20"],
+ ["#ffe0f2","#d9a3e7","#86529c"],
+ ["#baffad","#4ac879","#167747"],
+ ["#ffffff","#dcecf0","#253748"],
+ ["#ffe68c","#f4b52f","#a75b18"],
+ ["#ffc5d0","#f17f9e","#a83d60"]
+];
+const targets=Array.from({length:TOTAL},(_,i)=>600+i*220);
+const moveLimits=Array.from({length:TOTAL},(_,i)=>Math.max(16,25-Math.floor(i/3)));
+const boardEl=document.querySelector("#board");
+const scoreEl=document.querySelector("#score");
+const levelEl=document.querySelector("#level");
+const movesEl=document.querySelector("#moves");
+const bar=document.querySelector("#bar");
+const start=document.querySelector("#start");
+const message=document.querySelector("#message");
+let board=[],score=0,level=1,moves=25,selected=-1,busy=false,playing=false,soundOn=false,audio;
+
+function svgAnimal(type,special){
+ const [light,main,dark]=colors[type];
+ let ears="";
+ if(type===0) ears=`<path d="M17 43 22 8 44 30M56 30 78 8 83 43" fill="${main}" stroke="${dark}" stroke-width="4"/><path d="M26 27 28 17 37 30M63 30 74 17 75 27" fill="${dark}"/>`;
+ if(type===1) ears=`<path d="M18 40 17 10 43 29M57 29 83 10 82 40" fill="${main}" stroke="${dark}" stroke-width="4"/><path d="M25 26 24 17 36 30M64 30 76 17 75 26" fill="#d987ad"/>`;
+ if(type===2) ears=`<ellipse cx="20" cy="36" rx="13" ry="18" fill="${dark}"/><ellipse cx="80" cy="36" rx="13" ry="18" fill="${dark}"/>`;
+ if(type===3) ears=`<circle cx="22" cy="27" r="16" fill="${dark}"/><circle cx="78" cy="27" r="16" fill="${dark}"/>`;
+ if(type===4) ears=`<path d="M14 38Q5 20 24 16Q34 4 44 21Q50 9 58 21Q76 4 83 23Q96 31 84 42" fill="#a85f25"/>`;
+ if(type===5) ears=`<ellipse cx="17" cy="33" rx="12" ry="17" fill="${main}" stroke="${dark}" stroke-width="3"/><ellipse cx="83" cy="33" rx="12" ry="17" fill="${main}" stroke="${dark}" stroke-width="3"/>`;
+ const patches=type===3?`<ellipse cx="32" cy="47" rx="10" ry="13" fill="${dark}"/><ellipse cx="68" cy="47" rx="10" ry="13" fill="${dark}"/>`:"";
+ const muzzle=type===3||type===5?`<ellipse cx="50" cy="60" rx="23" ry="15" fill="${light}"/>`:`<ellipse cx="50" cy="59" rx="18" ry="12" fill="${light}"/>`;
+ const nose=type===2?`<ellipse cx="50" cy="57" rx="5" ry="4" fill="${dark}"/>`:`<path d="M44 55Q50 49 56 55L50 62Z" fill="${dark}"/>`;
+ const specialMark=special?`<circle cx="50" cy="50" r="46" fill="none" stroke="#ffe36b" stroke-width="5" stroke-dasharray="7 5"/><path d="M50 7 56 20 70 21 60 31 63 44 50 37 37 44 40 31 30 21 44 20Z" fill="#fff3a3" stroke="#e6a500" stroke-width="2"/>`:"";
+ return `<svg class="animal" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+ <defs><linearGradient id="fur${type}" x2=".8" y2="1"><stop stop-color="${light}"/><stop offset="1" stop-color="${main}"/></linearGradient></defs>
+ ${ears}<ellipse cx="50" cy="54" rx="35" ry="35" fill="url(#fur${type})" stroke="${dark}" stroke-width="3"/>
+ ${patches}
+ <ellipse cx="28" cy="61" rx="7" ry="5" fill="#ff8298" opacity=".8"/><ellipse cx="72" cy="61" rx="7" ry="5" fill="#ff8298" opacity=".8"/>
+ <ellipse cx="36" cy="43" rx="5" ry="7" fill="#20263a"/><ellipse cx="64" cy="43" rx="5" ry="7" fill="#20263a"/>
+ <circle cx="37" cy="41" r="2" fill="white"/><circle cx="65" cy="41" r="2" fill="white"/>
+ ${muzzle}${nose}
+ <path d="M50 61V66Q44 72 39 67M50 66Q56 72 61 67" fill="none" stroke="#533b45" stroke-width="2.5" stroke-linecap="round"/>
+ ${type===4?'<path d="M32 26Q50 17 68 26" stroke="#fff0a9" stroke-width="4" fill="none"/>':""}
+ ${specialMark}</svg>`;
+}
+
+function rand(){return Math.floor(Math.random()*6)}
+function tile(){return {type:rand(),special:false}}
+function createsMatch(r,c,t){
+ return (c>=2&&board[r*SIZE+c-1]?.type===t&&board[r*SIZE+c-2]?.type===t)||
+ (r>=2&&board[(r-1)*SIZE+c]?.type===t&&board[(r-2)*SIZE+c]?.type===t);
+}
+function newBoard(){
+ board=[];
+ for(let r=0;r<SIZE;r++)for(let c=0;c<SIZE;c++){
+  let t=tile(),tries=0;
+  while(createsMatch(r,c,t.type)&&tries++<20)t=tile();
+  board.push(t);
+ }
+ render();update();
+}
+function render(){
+ boardEl.innerHTML="";
+ board.forEach((t,i)=>{
+  const b=document.createElement("button");
+  b.className="tile"+(selected===i?" selected":"")+(t.special?" special":"");
+  b.type="button";b.setAttribute("aria-label",names[t.type]);
+  b.innerHTML=svgAnimal(t.type,t.special);
+  b.addEventListener("click",()=>tap(i));
+  boardEl.appendChild(b);
+ });
+}
+function update(){
+ scoreEl.textContent=score.toLocaleString();
+ levelEl.textContent=level+"/20";
+ movesEl.textContent=moves;
+ bar.style.width=Math.min(100,score/targets[level-1]*100)+"%";
+}
+function adjacent(a,b){
+ return Math.abs(Math.floor(a/SIZE)-Math.floor(b/SIZE))+Math.abs(a%SIZE-b%SIZE)===1;
+}
+function tap(i){
+ if(!playing||busy)return;
+ if(selected<0){selected=i;render();return}
+ if(selected===i){selected=-1;render();return}
+ if(adjacent(selected,i)){let a=selected;selected=-1;swap(a,i)}
+ else{selected=i;render()}
+}
+function swap(a,b){
+ busy=true;
+ [board[a],board[b]]=[board[b],board[a]];
+ render();
+ setTimeout(()=>{
+  const matches=findMatches();
+  if(!matches.size){
+   [board[a],board[b]]=[board[b],board[a]];
+   render();busy=false;beep(180,.05);return;
+  }
+  moves--;resolve(matches);
+ },130);
+}
+function findMatches(){
+ const found=new Set();
+ for(let r=0;r<SIZE;r++){
+  let c=0;
+  while(c<SIZE){
+   let e=c+1;
+   while(e<SIZE&&board[r*SIZE+e].type===board[r*SIZE+c].type)e++;
+   if(e-c>=3)for(let k=c;k<e;k++)found.add(r*SIZE+k);
+   c=e;
+  }
+ }
+ for(let c=0;c<SIZE;c++){
+  let r=0;
+  while(r<SIZE){
+   let e=r+1;
+   while(e<SIZE&&board[e*SIZE+c].type===board[r*SIZE+c].type)e++;
+   if(e-r>=3)for(let k=r;k<e;k++)found.add(k*SIZE+c);
+   r=e;
+  }
+ }
+ return found;
+}
+function resolve(matches){
+ if(!matches.size){busy=false;update();checkEnd();return}
+ let hit=new Set(matches);
+ matches.forEach(i=>{
+  if(board[i]?.special){
+   let r=Math.floor(i/SIZE),c=i%SIZE;
+   for(let k=0;k<SIZE;k++){hit.add(r*SIZE+k);hit.add(k*SIZE+c)}
+  }
+ });
+ score+=hit.size*50;
+ beep(440,.07);
+ let keep=-1;
+ if(matches.size>=4)keep=[...matches][Math.floor(matches.size/2)];
+ hit.forEach(i=>{if(i!==keep)board[i]=null});
+ if(keep>=0)board[keep]={type:board[keep].type,special:true};
+ render();update();
+ setTimeout(()=>{
+  for(let c=0;c<SIZE;c++){
+   let stack=[];
+   for(let r=SIZE-1;r>=0;r--){let t=board[r*SIZE+c];if(t)stack.push(t)}
+   for(let r=SIZE-1;r>=0;r--)board[r*SIZE+c]=stack[SIZE-1-r]||tile();
+  }
+  render();
+  setTimeout(()=>{
+   const next=findMatches();
+   if(next.size)resolve(next);
+   else{busy=false;update();checkEnd()}
+  },140);
+ },150);
+}
+function checkEnd(){
+ if(score>=targets[level-1]){
+  playing=false;
+  if(level===TOTAL)show("Wildlife Champion!","Amazing! You completed all 20 levels.","PLAY AGAIN");
+  else show("Level Complete!","Great job! Level "+(level+1)+" is unlocked.","NEXT LEVEL");
+ }else if(moves<=0){
+  playing=false;show("Out of Moves","Your score: "+score+". Try the level again!","RETRY LEVEL");
+ }
+}
+function show(title,text,button){
+ document.querySelector("#startTitle").textContent=title;
+ document.querySelector("#startText").textContent=text;
+ document.querySelector("#play").textContent=button;
+ start.classList.remove("hidden");
+}
+function beginLevel(){
+ score=0;moves=Math.max(16,25-Math.floor((level-1)/3));
+ selected=-1;busy=false;playing=true;
+ start.classList.add("hidden");newBoard();
+}
+function newGame(){level=1;beginLevel()}
+document.querySelector("#play").addEventListener("click",()=>{
+ const button=document.querySelector("#play").textContent;
+ if(button==="NEXT LEVEL")level=Math.min(TOTAL,level+1);
+ else if(button==="PLAY AGAIN")level=1;
+ beginLevel();
+});
+document.querySelector("#restart").addEventListener("click",()=>{
+ playing=false;show("Restart Level?","Start this level again from zero score.","RETRY LEVEL");
+});
+document.querySelector("#sound").addEventListener("click",e=>{
+ soundOn=!soundOn;e.currentTarget.textContent="♫ SOUND "+(soundOn?"ON":"OFF");
+ if(soundOn)beep(660,.1);
+});
+function beep(freq,duration){
+ if(!soundOn)return;
+ try{
+  audio=audio||new(window.AudioContext||window.webkitAudioContext)();
+  const o=audio.createOscillator(),g=audio.createGain();
+  o.frequency.value=freq;o.type="sine";g.gain.value=.025;
+  o.connect(g);g.connect(audio.destination);o.start();
+  g.gain.exponentialRampToValueAtTime(.001,audio.currentTime+duration);
+  o.stop(audio.currentTime+duration);
+ }catch(e){}
+}
+newBoard();
+</script>
+</body>
+</html>
